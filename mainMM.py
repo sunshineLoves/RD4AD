@@ -11,11 +11,12 @@ import random
 import os
 from torch.utils.data import DataLoader
 from resnet import resnet18, resnet34, resnet50, wide_resnet50_2
-from de_resnet import de_resnet18, de_resnet34, de_wide_resnet50_2, de_resnet50
+from de_resnetMM import de_resnet18, de_resnet34, de_wide_resnet50_2, de_resnet50
 from dataset import MVTecDataset
+from msff import MSFF
 import torch.backends.cudnn as cudnn
 import argparse
-from test import evaluation, visualization, test
+from testMM import evaluation, visualization, test
 from torch.nn import functional as F
 
 def count_parameters(model):
@@ -62,7 +63,7 @@ def train(_class_):
     print(_class_)
     epochs = 200
     learning_rate = 0.005
-    batch_size = 16
+    batch_size = 8
     image_size = 256
         
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -81,6 +82,7 @@ def train(_class_):
     encoder = encoder.to(device)
     bn = bn.to(device)
     encoder.eval()
+    msff = MSFF().to(device)
     decoder = de_wide_resnet50_2(pretrained=False)
     decoder = decoder.to(device)
 
@@ -94,15 +96,22 @@ def train(_class_):
         for img, label in train_dataloader:
             img = img.to(device)
             inputs = encoder(img)
-            outputs = decoder(bn(inputs))#bn(inputs))
+            mem0 = decoder.memory1(inputs[0])
+            mem1 = decoder.memory2(inputs[1])
+            mem2 = decoder.memory3(inputs[2])
+            mem_cat0 = torch.cat([inputs[0], mem0], dim=1)
+            mem_cat1 = torch.cat([inputs[1], mem1], dim=1)
+            mem_cat2 = torch.cat([inputs[2], mem2], dim=1)
+            fusion_features = msff([mem_cat0, mem_cat1, mem_cat2])
+            outputs = decoder(fusion_features)#bn(inputs))
             loss = loss_fucntion(inputs, outputs)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             loss_list.append(loss.item())
         print('epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, epochs, np.mean(loss_list)))
-        if (epoch + 1) % 10 == 0:
-            auroc_px, auroc_sp, aupro_px = evaluation(encoder, bn, decoder, test_dataloader, device)
+        if (epoch + 1) % 2 == 0:
+            auroc_px, auroc_sp, aupro_px = evaluation(encoder, msff, decoder, test_dataloader, device)
             print('Pixel Auroc:{:.3f}, Sample Auroc{:.3f}, Pixel Aupro{:.3}'.format(auroc_px, auroc_sp, aupro_px))
             torch.save({'bn': bn.state_dict(),
                         'decoder': decoder.state_dict()}, ckp_path)

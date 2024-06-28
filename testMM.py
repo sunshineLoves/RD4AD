@@ -61,10 +61,9 @@ def cvt2heatmap(gray):
 
 
 
-def evaluation(encoder, bn, decoder, dataloader,device,_class_=None):
+def evaluation(encoder, msff, decoder, dataloader,device,_class_=None):
     #_, t_bn = resnet50(pretrained=True)
     #bn.load_state_dict(bn.state_dict())
-    bn.eval()
     #bn.training = False
     #t_bn.to(device)
     #t_bn.load_state_dict(bn.state_dict())
@@ -79,7 +78,14 @@ def evaluation(encoder, bn, decoder, dataloader,device,_class_=None):
 
             img = img.to(device)
             inputs = encoder(img)
-            outputs = decoder(bn(inputs))
+            mem0 = decoder.memory1(inputs[0])
+            mem1 = decoder.memory2(inputs[1])
+            mem2 = decoder.memory3(inputs[2])
+            mem_cat0 = torch.cat([inputs[0], mem0], dim=1)
+            mem_cat1 = torch.cat([inputs[1], mem1], dim=1)
+            mem_cat2 = torch.cat([inputs[2], mem2], dim=1)
+            fusion_features = msff([mem_cat0, mem_cat1, mem_cat2])
+            outputs = decoder(fusion_features)
             anomaly_map, _ = cal_anomaly_map(inputs, outputs, img.shape[-1], amap_mode='a')
             anomaly_map = gaussian_filter(anomaly_map, sigma=4)
             gt[gt > 0.5] = 1
